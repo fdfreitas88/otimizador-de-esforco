@@ -59,6 +59,8 @@ let lastEffort = ''
 let held: { text: string; mine: number; pick: Pick | null; decided: 'apply' | 'skip' | null } | null = null
 // The model the main chat's last request named (e.g. claude-fable-5-2).
 let model = ''
+// The level the app's effort menu should move to once the running reply ends, and how often that was tried.
+let pendingMenu: { level: Level; tries: number } | null = null
 
 // Model families tune effort differently, so the pick is told which one runs the chat.
 type Family = 'fable' | 'opus' | 'sonnet' | 'haiku' | 'other'
@@ -208,21 +210,31 @@ async function applyLevel($: EngineInterface, level: Level) {
   hold = { level, base: lastEffort }
   await $.state.set(OVERRIDE, level)
   redraw($)
-  syncMenu($, level)
+  // The app's menu follows once this reply ends (turn.complete runs /effort).
+  pendingMenu = { level, tries: 0 }
   return ''
 }
 
-// The app's effort menu follows /effort, which runs once the session is idle (after this reply). So this
-// reply goes out at the level by the override above, and from the next one on the menu itself shows it:
-// the picker then matches, the hold lets go and the footer label goes away. A timer, as a slash command
-// cannot be queued from inside a hook the turn waits on.
-function syncMenu($: EngineInterface, level: Level) {
+// The app's effort menu follows /effort. Queued while the reply runs, the app drops it, so it runs once the
+// main turn has ended: this reply went out at the level by the override, and from the next one on the menu
+// itself shows it, the hold lets go and the footer label goes away. A timer, as a slash command cannot be
+// run from inside a hook the turn waits on. A dropped run is tried again after the next reply, 3 times at most.
+function syncMenu($: EngineInterface) {
+  const p = pendingMenu
+  if (!p || p.tries >= 3) {
+    pendingMenu = null
+    return
+  }
+  p.tries += 1
   try {
     $.clock.after(300, () => {
       void $.command
-        .run({ command: 'effort', args: level })
-        .then(r => log($, 'menu', `/effort ${level}: ${r.text ?? 'ok'}`))
-        .catch(err => log($, 'menu', err))
+        .run({ command: 'effort', args: p.level })
+        .then(async r => {
+          if (pendingMenu === p) pendingMenu = null
+          await log($, 'menu', `/effort ${p.level}: ${r.text ?? 'ok'}`)
+        })
+        .catch(err => log($, 'menu', `try ${p.tries}: ${err instanceof Error ? err.message : String(err)}`))
     })
   } catch (err) {
     void log($, 'menu', err)
@@ -538,7 +550,7 @@ export const register: Register = on => {
     }
     lastEffort = e.effort
     // The picker moved (by hand, or /effort landed): the mod lets go.
-    if (hold && e.effort !== hold.base) { hold = null; turnLevel = null }
+    if (hold && e.effort !== hold.base) { hold = null; turnLevel = null; pendingMenu = null }
     let value: Level | null = enabled && hold ? hold.level : null
     if (!hold && (await $.state.get(OVERRIDE)).value) {
       await $.state.set(OVERRIDE, null)
@@ -565,6 +577,13 @@ export const register: Register = on => {
     // turn's first request stands for its tool steps, so later rewrites are not sent: log the first one only.
     if (e.index === 0) void log($, 'request', `${e.model}: ${e.effort} -> ${want}`)
     return yield* next({ ...e, effort: want })
+  })
+
+  // The main reply ended: now the app runs a slash command at once, so the menu can follow the level.
+  on('turn.complete', async ($, e, next) => {
+    const r = await next(e)
+    if (e.agentId === undefined && pendingMenu && !off && enabled) syncMenu($)
+    return r
   })
 
   on('command.run', { command: 'otimizador-de-esforco' }, async ($, e) => {

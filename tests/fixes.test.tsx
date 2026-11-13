@@ -13,6 +13,7 @@ function engine(on: On, pickJson: string, override: string | null = null) {
   on('command.register', () => ({ value: { command: 'otimizador-de-esforco' } }))
   on('clock.every', () => ({ value: undefined }))
   on('clock.after', () => ({ value: undefined }))
+  on('turn.complete', (_, e) => ({ text: e.answer }))
   const commands: string[] = []
   on('command.run', (_, e) => {
     commands.push(`/${e.command} ${e.args}`)
@@ -49,10 +50,14 @@ test('a level change also moves the app menu with /effort, after the reply', asy
   for await (const _ of $.turn.step({ turnId: 't1', index: 0, model: 'claude-opus-5-5', effort: 'medium', messageCount: 1 })) {
     // drain
   }
-  // This reply goes out at high right away; the menu follows through /effort.
+  // This reply goes out at high right away; nothing is queued while it runs.
   expect(sent).toEqual(['high'])
+  for (let i = 0; i < 50; i += 1) await Promise.resolve()
+  expect(commands).toEqual([])
+  // Once the reply ends, the menu follows through /effort.
+  await $.turn.complete({ turnId: 't1', answer: 'done', durationMs: 1, isAborted: false, reason: 'answer' })
   for (let i = 0; i < 50 && !commands.length; i += 1) await Promise.resolve()
-  expect(commands).toContain('/effort high')
+  expect(commands).toEqual(['/effort high'])
 })
 
 test('a keep answer leaves the level alone and is not logged as unreadable', async ($, on) => {
