@@ -58,16 +58,39 @@ test('the log goes to a .claude/mods-logs file named after the mod', async ($, o
   expect(writes.map(w => w.path).join(', ')).toContain('/.claude/mods-logs/otimizador-de-esforco.log')
 })
 
-test('the footer label is added beside the other modes on desktop', async ($, on) => {
-  engine(on, '{"level":"keep","why":""}', 'high')
-  // The engine's own footer: the modes joined.
+// The engine's own footer: the modes joined.
+function footer(on: On) {
   on('ui.render', ($, e) => {
     const { Text } = $.ui.resolve(e)
     const modes = (e.props as { modes: readonly string[] }).modes
     return <Text>{modes.join(' & ')}</Text>
   })
+}
+
+test('on desktop the mod draws its own footer label, beside the other modes', async ($, on) => {
+  engine(on, '{"level":"keep","why":""}', 'high')
+  footer(on)
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
   const ui = await $.ui.mount({ plugin: 'otimizador-de-esforco', component: 'SessionMode', surface: 'desktop', props: { modes: ['focus'] } })
+  expect((await ui.find({ type: 'Text', text: /^Esforço Alto$/ }))?.text).toBe('Esforço Alto')
+  expect((await ui.find({ type: 'Text', text: /focus/ }))?.text).toBe('focus')
+  await ui.unmount()
+})
+
+test('on desktop with no other modes, only the label is drawn', async ($, on) => {
+  engine(on, '{"level":"keep","why":""}', 'high')
+  footer(on)
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  const ui = await $.ui.mount({ plugin: 'otimizador-de-esforco', component: 'SessionMode', surface: 'desktop', props: { modes: [] } })
+  expect((await ui.find({ type: 'Text', text: /Esforço/ }))?.text).toBe('Esforço Alto')
+  await ui.unmount()
+})
+
+test('on the terminal the label joins the footer modes', async ($, on) => {
+  engine(on, '{"level":"keep","why":""}', 'high')
+  footer(on)
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  const ui = await $.ui.mount({ plugin: 'otimizador-de-esforco', component: 'SessionMode', surface: 'terminal', props: { modes: ['focus'] } })
   expect((await ui.find({ type: 'Text' }))?.text).toBe('focus & Esforço Alto')
   await ui.unmount()
 })

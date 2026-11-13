@@ -644,8 +644,19 @@ export const register: Register = on => {
     if (off || !enabled) return next(e)
     const { value } = await $.state.get(OVERRIDE)
     if (!value) return next(e)
-    // Added beside the footer's other modes (focus, memory paused), never in their place.
     const label = `Esforço ${SHORT[value]}`
+    // The desktop app draws only a tree in this slot, not a rewritten `modes`: draw the label beside
+    // the footer's own modes (focus, memory paused), never in their place.
+    if (e.surface === 'desktop' || e.surface === 'vscode') {
+      const { Box, Text } = $.ui.resolve(e)
+      const rest = e.props.modes.length ? await next(e) : null
+      return (
+        <Box flexDirection="row" gap={1}>
+          {rest}
+          <Text color={ACCENT}>{label}</Text>
+        </Box>
+      )
+    }
     return next({ ...e, props: { ...e.props, modes: [...e.props.modes.filter(m => !m.startsWith('Esforço ')), label] } })
   })
 
