@@ -445,42 +445,54 @@ async function offerMove(
   return { moved: false, decided: 'skip' }
 }
 
-// Suggest mode: when the level differs, hold the prompt until the person answers.
-async function suggest($: EngineInterface, p: Pick | null, mine: number) {
-  const now = await currentLevel($)
-  if (!p || !p.level || mine !== gen || p.level === now) return
-  const go = `Mudar para ${NAMES[p.level]}`
+// Suggest mode: asks before the prompt goes in. True when the person chose to switch.
+async function askEffort($: EngineInterface, level: Level, why: string, now: Level | '') {
+  const go = `Mudar para ${NAMES[level]}`
   const auto = 'Mudar e ajustar sozinho daqui em diante'
   const keep = now ? `Manter ${NAMES[now]}` : 'Manter como está'
   let answer = ''
   try {
-    answer = await $.ui.ask(`Parece uma tarefa de esforço ${NAMES[p.level]}${p.why ? `: ${p.why}` : ''}. Mudar antes de o Claude começar?`, {
+    answer = await $.ui.ask(`Parece uma tarefa de esforço ${NAMES[level]}${why ? `: ${why}` : ''}. Mudar antes de o Claude começar?`, {
       options: [go, auto, keep],
       header: 'Esforço',
     })
   } catch {
     // A dismissed dialog keeps the level and sends the prompt.
-    return
+    return false
   }
-  if (answer !== go && answer !== auto) return
   if (answer === auto) {
     mode = 'auto'
     await $.store.set('mode', mode)
   }
-  const note = await applyLevel($, p.level)
-  await showApplied($, { level: p.level, why: p.why }, now, note)
+  return answer === go || answer === auto
 }
 
-// Auto mode: the first request already runs at the picked level.
-async function autoAdjust($: EngineInterface, p: Pick | null, mine: number) {
-  const now = await currentLevel($)
-  if (!p || !p.level || mine !== gen) return
-  if (p.level === now) {
-    turnLevel = p.level
-    return
-  }
-  const note = await applyLevel($, p.level)
-  await showApplied($, { level: p.level, why: p.why }, now, note)
+// A prompt the mod can send again exactly as typed: nothing pasted or attached, no @file mention
+// (a plugin's prompt expands neither).
+function canResend(e: { text: string; attachments?: readonly unknown[] }) {
+  return !e.attachments?.length && !/(^|\s)@\S/.test(e.text)
+}
+
+// Moves the app's effort menu first, then sends the prompt again: Claude starts at the new level, the menu
+// already showing it. Runs from a timer once the dropped prompt left the session idle, where /effort runs at once.
+// When /effort fails, this prompt goes out at the level by the override, and the menu follows after the reply.
+function menuThenResend($: EngineInterface, text: string, p: { level: Level; why: string }, from: Level | '') {
+  $.clock.after(50, () => {
+    void (async () => {
+      try {
+        const r = await $.command.run({ command: 'effort', args: p.level })
+        seen = p.level
+        pendingMenu = null
+        await log($, 'menu', `/effort ${p.level} before the prompt: ${r.text ?? 'ok'}`)
+        await showApplied($, p, from, '')
+      } catch (err) {
+        await log($, 'menu', `before the prompt: ${err instanceof Error ? err.message : String(err)}`)
+        const note = await applyLevel($, p.level)
+        await showApplied($, p, from, note)
+      }
+      await $.prompt.submit({ text, asUser: true })
+    })().catch(err => log($, 'resend', err))
+  })
 }
 
 export const register: Register = on => {
@@ -522,6 +534,7 @@ export const register: Register = on => {
     const now = await currentLevel($)
     const p = await pickWithStatus($, text, now)
     const to = p ? usableMove(p) : null
+    let decided: 'apply' | 'skip' | null = null
     if (p && to && mine === gen) {
       const r = await offerMove($, p, to, now)
       if (r.moved) {
@@ -531,11 +544,21 @@ export const register: Register = on => {
         void log($, 'handoff', `${model} -> ${MODEL_IDS[to]}${p.level ? ` at ${p.level}` : ''}`)
         return next({ ...e, text: handoffText(text, to, p.level) })
       }
-      held = { text, mine, pick: p, decided: r.decided }
-      return next(e)
+      decided = r.decided
     }
-    // The level is set at the turn's first request, which carries the level the chat really runs at.
-    held = { text, mine, pick: p, decided: null }
+    held = null
+    const level = p?.level
+    if (!p || !level || level === now || mine !== gen || decided === 'skip') return next(e)
+    // Auto mode, or the person chose it in the model dialog, switches at once; suggest mode asks first.
+    const apply = decided === 'apply' || mode === 'auto' || (await askEffort($, level, p.why, now))
+    if (!apply || mine !== gen) return next(e)
+    if (canResend(e)) {
+      // The menu moves before Claude starts: this prompt steps aside and comes back right after /effort.
+      menuThenResend($, e.text, { level, why: p.why }, now)
+      return { drop: `Esforço ${NAMES[level]}: ajustando o menu e enviando seu prompt…` }
+    }
+    // A prompt with attachments cannot be sent again: it goes now at the level by the override.
+    held = { text, mine, pick: p, decided: 'apply' }
     return next(e)
   }).catch(($, e, next) => next(e))
 
@@ -565,10 +588,7 @@ export const register: Register = on => {
         const from = await currentLevel($)
         const note = await applyLevel($, h.pick.level)
         await showApplied($, { level: h.pick.level, why: h.pick.why }, from, note)
-      } else if (h.decided === 'skip') {
-        // The person kept the level when declining the move.
-      } else if (mode === 'auto') await autoAdjust($, h.pick, h.mine).catch(err => log($, 'auto', err))
-      else await suggest($, h.pick, h.mine).catch(err => log($, 'suggest', err))
+      }
       value = enabled && hold ? hold.level : null
     }
     const want = turnLevel ?? (enabled ? (value ?? null) : null)

@@ -34,7 +34,7 @@ Ele sempre pergunta antes de trocar de modelo, mesmo no modo automático.
 - `/otimizador-de-esforco models off` ou `models on`: desliga ou liga a sugestão de modelo.
 - `/otimizador-de-esforco off` ou `on`: desliga ou liga o mod.
 
-No app desktop, o menu de esforço ao lado do nome do modelo continua mostrando a sua escolha: o app não deixa um chat mudar o próprio menu. O nível que o mod realmente usa aparece como "Esforço ..." no canto inferior direito.
+Quando o nível muda (no modo automático, ou assim que você aceita a troca), o mod roda `/effort` antes de o Claude começar e reenvia o seu prompt: o menu de esforço ao lado do nome do modelo já mostra o novo nível. Prompts com anexo ou menção `@arquivo` não podem ser reenviados: esses saem na hora com o nível ajustado pelo mod, o rótulo "Esforço ..." no canto inferior direito mostra o nível real, e o menu acompanha quando a resposta termina.
 
 ## Instalação
 
