@@ -208,7 +208,25 @@ async function applyLevel($: EngineInterface, level: Level) {
   hold = { level, base: lastEffort }
   await $.state.set(OVERRIDE, level)
   redraw($)
+  syncMenu($, level)
   return ''
+}
+
+// The app's effort menu follows /effort, which runs once the session is idle (after this reply). So this
+// reply goes out at the level by the override above, and from the next one on the menu itself shows it:
+// the picker then matches, the hold lets go and the footer label goes away. A timer, as a slash command
+// cannot be queued from inside a hook the turn waits on.
+function syncMenu($: EngineInterface, level: Level) {
+  try {
+    $.clock.after(300, () => {
+      void $.command
+        .run({ command: 'effort', args: level })
+        .then(r => log($, 'menu', `/effort ${level}: ${r.text ?? 'ok'}`))
+        .catch(err => log($, 'menu', err))
+    })
+  } catch (err) {
+    void log($, 'menu', err)
+  }
 }
 
 function redraw($: EngineInterface) {
@@ -697,9 +715,9 @@ export const register: Register = on => {
               <Text bold> O Claude agora trabalha com esforço {NAMES[b.level]}</Text>
             </Text>
             <Text dimColor>O mod ajusta o nível em cada mensagem antes de ela sair do seu computador.</Text>
-            <Text dimColor>O menu de esforço ao lado do nome do modelo ainda mostra {was}. Só você pode mexer nesse menu: o app não deixa um chat mudar o próprio menu.</Text>
-            <Text dimColor>Para ver o nível real, procure o rótulo "Esforço {SHORT[b.level]}" no canto inferior direito, ou digite /otimizador-de-esforco.</Text>
-            <Text dimColor>Se você mexer no menu, o mod volta a seguir o menu.</Text>
+            <Text dimColor>Esta resposta já sai com esforço {NAMES[b.level]}. O menu de esforço ao lado do nome do modelo ainda mostra {was} e passa para {NAMES[b.level]} quando esta resposta terminar.</Text>
+            <Text dimColor>Enquanto isso, o rótulo "Esforço {SHORT[b.level]}" no canto inferior direito mostra o nível real.</Text>
+            <Text dimColor>Se você mexer no menu, o mod segue o menu.</Text>
             <Box flexDirection="row" gap={1}>
               <Button key="info-close" label="Entendi" role="dismiss" onPress={noop} />
             </Box>

@@ -12,6 +12,12 @@ function engine(on: On, pickJson: string, override: string | null = null) {
   })
   on('command.register', () => ({ value: { command: 'otimizador-de-esforco' } }))
   on('clock.every', () => ({ value: undefined }))
+  on('clock.after', () => ({ value: undefined }))
+  const commands: string[] = []
+  on('command.run', (_, e) => {
+    commands.push(`/${e.command} ${e.args}`)
+    return { text: 'ok' }
+  })
   on('clock.now', () => ({ value: 0 }))
   on('config.list', () => ({ value: [] }))
   on('fs.exists', () => ({ value: false }))
@@ -33,8 +39,21 @@ function engine(on: On, pickJson: string, override: string | null = null) {
     sent.push(e.effort)
     return { turnId: e.turnId, index: e.index, answer: '', toolUses: [], stopReason: 'end_turn', usage: null }
   })
-  return { sent, writes }
+  return { sent, writes, commands }
 }
+
+test('a level change also moves the app menu with /effort, after the reply', async ($, on) => {
+  const { sent, commands } = engine(on, '{"level":"high","why":"risky review"}')
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await $.prompt.submit({ text: 'Review this contract.', origin: { kind: 'composer' }, wait: false })
+  for await (const _ of $.turn.step({ turnId: 't1', index: 0, model: 'claude-opus-5-5', effort: 'medium', messageCount: 1 })) {
+    // drain
+  }
+  // This reply goes out at high right away; the menu follows through /effort.
+  expect(sent).toEqual(['high'])
+  for (let i = 0; i < 50 && !commands.length; i += 1) await Promise.resolve()
+  expect(commands).toContain('/effort high')
+})
 
 test('a keep answer leaves the level alone and is not logged as unreadable', async ($, on) => {
   const { sent, writes } = engine(on, '{"level":"keep","why":"approves earlier work"}')

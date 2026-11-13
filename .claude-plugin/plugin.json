@@ -1,6 +1,6 @@
 {
   "name": "otimizador-de-esforco",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Lê cada prompt, escolhe o nível de esforço de que ele precisa e sugere um modelo mais leve ou mais forte quando vale a pena, abrindo uma nova sessão nele",
   "author": {
     "name": "fdfreitas88",
