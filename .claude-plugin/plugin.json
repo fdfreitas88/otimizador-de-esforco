@@ -1,0 +1,10 @@
+{
+  "name": "otimizador-de-esforco",
+  "version": "1.0.0",
+  "description": "Lê cada prompt, escolhe o nível de esforço de que ele precisa e sugere um modelo mais leve ou mais forte quando vale a pena, abrindo uma nova sessão nele",
+  "author": {
+    "name": "fdfreitas88",
+    "url": "https://github.com/fdfreitas88"
+  },
+  "types": "./types/index.d.ts"
+}
